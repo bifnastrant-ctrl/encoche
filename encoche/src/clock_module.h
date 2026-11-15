@@ -18,7 +18,7 @@ public:
     }
 
     void DrawCompact(Gdiplus::Graphics& g, Gdiplus::RectF a, float al) override {
-        PutText(g, TimeStr(), 14, true, Rgba(255, 255, 255, al), RectF2(a, 4), Gdiplus::StringAlignmentCenter);
+        PutText(g, TimeStr(), 14, true, Rgba(255, 255, 255, al), RectF2(a, 2), Gdiplus::StringAlignmentCenter);
     }
 
     void DrawExpanded(Gdiplus::Graphics& g, Gdiplus::RectF a, float al) override {
@@ -34,10 +34,7 @@ public:
 
     void OnClick(Gdiplus::PointF, Gdiplus::RectF) override {}
 
-private:
-    static Gdiplus::RectF RectF2(Gdiplus::RectF a, float dy) {
-        return Gdiplus::RectF(a.X, a.Y + dy, a.Width, a.Height);
-    }
+    // Heure affichée en permanence dans la pastille fermée.
     static std::wstring TimeStr() {
         SYSTEMTIME st;
         GetLocalTime(&st);
@@ -49,6 +46,11 @@ private:
             swprintf_s(b, L"%d:%02d %s", h == 0 ? 12 : h, st.wMinute, st.wHour < 12 ? L"AM" : L"PM");
         }
         return b;
+    }
+
+private:
+    static Gdiplus::RectF RectF2(Gdiplus::RectF a, float dy) {
+        return Gdiplus::RectF(a.X, a.Y + dy, a.Width, a.Height);
     }
     WORD lastMinute_ = 0xFFFF;
 };

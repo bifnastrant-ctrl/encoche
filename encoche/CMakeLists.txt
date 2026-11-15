@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Encoche LANGUAGES CXX)
+project(Encoche LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,9 +9,10 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 add_executable(Encoche WIN32
     src/main.cpp
     src/music_module.cpp
+    app.rc
 )
 
 target_compile_definitions(Encoche PRIVATE NOMINMAX UNICODE _UNICODE)
-target_compile_options(Encoche PRIVATE /utf-8 /W3)
+target_compile_options(Encoche PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:/utf-8>" "$<$<COMPILE_LANGUAGE:CXX>:/W3>")
 target_link_libraries(Encoche PRIVATE
-    windowsapp gdiplus shlwapi shell32 user32 gdi32 ole32 advapi32)
+    windowsapp gdiplus shlwapi shell32 user32 gdi32 ole32 advapi32 dwmapi)

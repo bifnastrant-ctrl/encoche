@@ -6,8 +6,9 @@
 #include "music_module.h"
 #include "clock_module.h"
 #include "prayer_module.h"
+#include "shortcuts_module.h"
 #include "config.h"
-#include "settings_page.h"
+#include "settings_window.h"
 
 #include <windowsx.h>
 #include <shellapi.h>
@@ -20,7 +21,8 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-constexpr float kClosedW = 200, kClosedH = 34, kClosedR = 14;
+constexpr float kClosedW = 150, kClosedH = 32, kClosedR = 11;
+constexpr float kEar = 9;   // courbes concaves en haut de chaque côté (comme l'encoche d'un MacBook)
 constexpr float kOpenW = 440, kOpenH = 190;
 constexpr UINT_PTR kTimerId = 1;
 constexpr UINT kCmdExit = 1001;
@@ -75,6 +77,18 @@ void DrawGear(Gdiplus::Graphics& g, float cx, float cy, bool close, float al) {
 
 float Lerp(float a, float b, float t) { return a + (b - a) * t; }
 
+// Forme d'encoche de MacBook : collée au bord haut de l'écran, deux petites courbes concaves
+// qui la raccordent au bord, coins du bas arrondis. W = largeur totale (oreilles comprises).
+void AddNotchPath(Gdiplus::GraphicsPath& p, float W, float H, float r, float e) {
+    r = std::min(r, std::min((W - 2 * e) / 2.f, H / 2.f));
+    p.AddLine(0.f, 0.f, W, 0.f);
+    p.AddArc(W - e, 0.f, 2 * e, 2 * e, 270.f, -90.f);               // oreille droite
+    p.AddArc(W - e - 2 * r, H - 2 * r, 2 * r, 2 * r, 0.f, 90.f);    // coin bas droit
+    p.AddArc(e, H - 2 * r, 2 * r, 2 * r, 90.f, 90.f);               // coin bas gauche
+    p.AddArc(-e, 0.f, 2 * e, 2 * e, 0.f, -90.f);                    // oreille gauche
+    p.CloseFigure();
+}
+
 struct App {
     HWND hwnd{};
     float scale = 1.f;   // facteur DPI
@@ -93,18 +107,29 @@ struct App {
     Clock::time_point lastInside = Clock::now() - std::chrono::seconds(1);
     Clock::time_point lastFs = Clock::now();
 
+    // Pages dans l'ordre de leur identifiant (0 = Musique, 1 = Prière, 2 = Raccourcis).
     std::vector<std::unique_ptr<INotchModule>> modules;
-    size_t cur = 0;
-    SettingsPage settings;
-    bool inSettings = false;
-    Clock::time_point forceOpenUntil = Clock::now();
+    ClockModule clock;   // l'heure, toujours affichée dans la pastille fermée
+    SettingsWindow settingsWin;
+    size_t cur = 0;      // position dans la liste des pages visibles
 
-    INotchModule& Current() { return inSettings ? static_cast<INotchModule&>(settings) : *modules[cur]; }
-
-    void OpenSettings() {
-        inSettings = true;
-        forceOpenUntil = Clock::now() + std::chrono::seconds(6);
-        Render();
+    // Pages visibles, dans l'ordre choisi dans les réglages.
+    std::vector<size_t> VisiblePages() const {
+        std::vector<size_t> v;
+        for (int i = 0; i < kPageCount; ++i) {
+            int id = Cfg().pageOrder[i];
+            if (Cfg().pageOn[id] && (size_t)id < modules.size()) v.push_back((size_t)id);
+        }
+        return v;
+    }
+    size_t CurIndex() const {
+        size_t n = VisiblePages().size();
+        return n ? std::min(cur, n - 1) : 0;
+    }
+    INotchModule& Current() {
+        std::vector<size_t> v = VisiblePages();
+        if (v.empty()) return clock;  // toutes les pages masquées : on affiche l'horloge
+        return *modules[v[std::min(cur, v.size() - 1)]];
     }
 
     ~App() { DestroySurface(); }
@@ -123,7 +148,7 @@ struct App {
         DestroySurface();
         UINT dpi = GetDpiForWindow(hwnd);
         scale = (dpi ? dpi : 96) / 96.f;
-        surfW = (int)std::ceil(kOpenW * scale);
+        surfW = (int)std::ceil((kOpenW + 2 * kEar) * scale);
         surfH = (int)std::ceil(kOpenH * scale);
 
         BITMAPINFO bi{};
@@ -150,7 +175,7 @@ struct App {
 
     RECT WindowRect() const {
         RECT m = MonitorRect();
-        int w = (int)std::ceil(Lerp(kClosedW, kOpenW, t) * scale);
+        int w = (int)std::ceil((Lerp(kClosedW, kOpenW, t) + 2 * kEar) * scale);
         int h = (int)std::ceil(Lerp(kClosedH, kOpenH, t) * scale);
         int x = m.left + ((m.right - m.left) - w) / 2;
         return RECT{x, m.top, x + w, m.top + h};
@@ -173,14 +198,14 @@ struct App {
             Gdiplus::Bitmap bmp(surfW, surfH, surfW * 4, PixelFormat32bppPARGB, (BYTE*)bits);
             Gdiplus::Graphics g(&bmp);
             g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
-            g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
+            g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAlias);
             g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
             g.Clear(Gdiplus::Color(0, 0, 0, 0));
             g.ScaleTransform(scale, scale);
 
             // Forme : collée en haut, seuls les coins du bas sont arrondis.
             Gdiplus::GraphicsPath shape;
-            AddRoundRect(shape, 0, -r, lw, lh + r, r);
+            AddNotchPath(shape, lw + 2 * kEar, lh, r, kEar);
             Gdiplus::SolidBrush black(Gdiplus::Color(255, 0, 0, 0));
             g.FillPath(&black, &shape);
             g.SetClip(&shape);
@@ -191,22 +216,23 @@ struct App {
 
             if (aC > 0.01f) {
                 Gdiplus::GraphicsState s = g.Save();
-                g.TranslateTransform((lw - kClosedW) / 2, 0);
-                m.DrawCompact(g, Gdiplus::RectF(8, 6, kClosedW - 16, 22), aC);
+                g.TranslateTransform(kEar + (lw - kClosedW) / 2, 0);
+                clock.DrawCompact(g, Gdiplus::RectF(8, 6, kClosedW - 16, 22), aC);  // fermé : seulement l'heure
                 g.Restore(s);
             }
             if (aE > 0.01f) {
                 Gdiplus::GraphicsState s = g.Save();
-                g.TranslateTransform((lw - kOpenW) / 2, 0);
+                g.TranslateTransform(kEar + (lw - kOpenW) / 2, 0);
                 m.DrawExpanded(g, Gdiplus::RectF(20, 18, kOpenW - 40, kOpenH - 32), aE);
 
-                DrawGear(g, kGearX, kGearY, inSettings, aE);
+                DrawGear(g, kGearX, kGearY, false, aE);
 
-                size_t n = modules.size();
-                if (n > 1 && !inSettings) {  // points de pagination
+                size_t n = VisiblePages().size();
+                if (n > 1) {  // points de pagination
+                    size_t curIdx = CurIndex();
                     for (size_t i = 0; i < n; ++i) {
                         float cx = kOpenW / 2 + ((float)i - (n - 1) / 2.f) * 12.f;
-                        Gdiplus::SolidBrush dot((i == cur ? Accent(aE * 0.95f) : Rgba(255, 255, 255, aE * 0.3f)));
+                        Gdiplus::SolidBrush dot((i == curIdx ? Accent(aE * 0.95f) : Rgba(255, 255, 255, aE * 0.3f)));
                         g.FillEllipse(&dot, cx - 3, kOpenH - 12.f, 6.f, 6.f);
                     }
                 }
@@ -249,9 +275,7 @@ struct App {
         bool inside = c.x >= wr.left - 12 && c.x < wr.right + 12 &&
                       c.y >= wr.top - 2 && c.y < wr.bottom;
         if (inside) lastInside = now;
-        target = (inside || now - lastInside < std::chrono::milliseconds(250) || now < forceOpenUntil)
-                     ? 1.f : 0.f;
-        if (t < 0.01f && target == 0.f && inSettings) inSettings = false;  // on repart sur la page normale
+        target = (inside || now - lastInside < std::chrono::milliseconds(250)) ? 1.f : 0.f;
 
         bool dirty = false;
         if (std::fabs(target - t) > 0.0005f) {
@@ -267,7 +291,7 @@ struct App {
             m->SetOpenness(t);
             if (m->Tick()) dirty = true;
         }
-        settings.SetOpenness(t);
+        if (clock.Tick()) dirty = true;
         if (dirty) Render();
     }
 };
@@ -309,7 +333,7 @@ void ShowMenu(HWND h) {
     DestroyMenu(menu);
     PostMessageW(h, WM_NULL, 0, 0);
     if (cmd == kCmdExit) DestroyWindow(h);
-    else if (cmd == kCmdSettings && g_app) g_app->OpenSettings();
+    else if (cmd == kCmdSettings && g_app) g_app->settingsWin.Show();
     else if (cmd == kCmdStartup) SetStartup(!IsStartupEnabled());
 }
 
@@ -326,16 +350,17 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
 
     case kTrayMsg:
         if (LOWORD(l) == WM_RBUTTONUP || LOWORD(l) == WM_CONTEXTMENU) ShowMenu(h);
-        else if (LOWORD(l) == WM_LBUTTONUP && a) a->OpenSettings();
+        else if (LOWORD(l) == WM_LBUTTONUP && a) a->settingsWin.Show();
         return 0;
 
     case WM_LBUTTONUP:
         if (a && a->t > 0.9f && !a->modules.empty()) {
-            float x = GET_X_LPARAM(l) / a->scale;
+            float lw = Lerp(kClosedW, kOpenW, a->t);   // largeur actuelle du corps de l'encoche
+            float x = GET_X_LPARAM(l) / a->scale - kEar - (lw - kOpenW) / 2;
             float y = GET_Y_LPARAM(l) / a->scale;
             float dx = x - kGearX, dy = y - kGearY;
-            if (dx * dx + dy * dy <= 14.f * 14.f) {  // engrenage <-> retour
-                a->inSettings = !a->inSettings;
+            if (dx * dx + dy * dy <= 14.f * 14.f) {  // engrenage : ouvre la fenêtre de réglages
+                a->settingsWin.Show();
             } else {
                 a->Current().OnClick({x - 20, y - 18}, {0, 0, kOpenW - 40, kOpenH - 32});
             }
@@ -344,10 +369,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         return 0;
 
     case WM_MOUSEWHEEL:
-        if (a && a->modules.size() > 1 && !a->inSettings) {  // molette : changer de page
-            size_t n = a->modules.size();
-            a->cur = GET_WHEEL_DELTA_WPARAM(w) > 0 ? (a->cur + n - 1) % n : (a->cur + 1) % n;
-            a->Render();
+        if (a) {  // molette : changer de page
+            size_t n = a->VisiblePages().size();
+            if (n > 1) {
+                size_t c0 = a->CurIndex();
+                a->cur = GET_WHEEL_DELTA_WPARAM(w) > 0 ? (c0 + n - 1) % n : (c0 + 1) % n;
+                a->Render();
+            }
         }
         return 0;
 
@@ -401,9 +429,11 @@ int WINAPI WinMain(HINSTANCE hi, HINSTANCE, LPSTR, int) {
         app.CreateSurface();
 
         // --- Ajoutez vos modules ici (une page chacun, molette pour naviguer) ---
-        app.modules.push_back(std::make_unique<MusicModule>());
-        app.modules.push_back(std::make_unique<PrayerModule>());
-        app.modules.push_back(std::make_unique<ClockModule>());
+        // Les identifiants de page (0, 1, 2) suivent l'ordre de ces lignes (voir config.h : PageName).
+        app.modules.push_back(std::make_unique<MusicModule>());      // 0
+        app.modules.push_back(std::make_unique<PrayerModule>());     // 1
+        app.modules.push_back(std::make_unique<ShortcutsModule>());  // 2
+        app.settingsWin.onChange = [&app] { app.Render(); };
         AddTrayIcon(app.hwnd);
 
         ShowWindow(app.hwnd, SW_SHOWNOACTIVATE);

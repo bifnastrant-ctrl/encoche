@@ -12,6 +12,7 @@ using std::max;
 #include <gdiplus.h>
 #include <string>
 #include <cmath>
+#include <vector>
 
 struct INotchModule {
     virtual ~INotchModule() = default;
@@ -36,11 +37,61 @@ inline Gdiplus::Color Rgba(int r, int g, int b, float a) {
     return Gdiplus::Color((BYTE)(std::clamp(a, 0.f, 1.f) * 255.f), (BYTE)r, (BYTE)g, (BYTE)b);
 }
 
+// Police de l'interface : Inter (intégrée à l'exe, ressources 101 = Regular, 102 = SemiBold).
+// Si elle ne peut pas être chargée, on retombe sur Segoe UI. Les objets ne sont jamais libérés
+// exprès : GDI+ est arrêté avant la fin du processus.
+struct AppFonts {
+    Gdiplus::PrivateFontCollection* pfc = nullptr;
+    Gdiplus::FontFamily* regular = nullptr;
+    Gdiplus::FontFamily* semibold = nullptr;
+    bool custom = false;
+};
+
+inline AppFonts& Fonts() {
+    static AppFonts* f = [] {
+        auto* af = new AppFonts;
+        af->pfc = new Gdiplus::PrivateFontCollection();
+        bool ok = true;
+        for (int id : {101, 102}) {
+            HRSRC r = FindResourceW(nullptr, MAKEINTRESOURCEW(id), RT_RCDATA);
+            HGLOBAL h = r ? LoadResource(nullptr, r) : nullptr;
+            void* data = h ? LockResource(h) : nullptr;
+            if (!data || af->pfc->AddMemoryFont(data, (INT)SizeofResource(nullptr, r)) != Gdiplus::Ok)
+                ok = false;
+        }
+        if (ok) {
+            INT n = af->pfc->GetFamilyCount();
+            if (n > 0) {
+                std::vector<Gdiplus::FontFamily> fam((size_t)n);
+                INT found = 0;
+                if (af->pfc->GetFamilies(n, fam.data(), &found) == Gdiplus::Ok) {
+                    for (INT i = 0; i < found; ++i) {
+                        WCHAR name[LF_FACESIZE]{};
+                        fam[(size_t)i].GetFamilyName(name);
+                        if (wcscmp(name, L"Inter") == 0) af->regular = fam[(size_t)i].Clone();
+                        else if (wcscmp(name, L"Inter SemiBold") == 0) af->semibold = fam[(size_t)i].Clone();
+                    }
+                }
+            }
+        }
+        if (af->regular && af->semibold) {
+            af->custom = true;
+        } else {
+            af->regular = new Gdiplus::FontFamily(L"Segoe UI");
+            af->semibold = af->regular;
+        }
+        return af;
+    }();
+    return *f;
+}
+
 inline void PutText(Gdiplus::Graphics& g, const std::wstring& s, float px, bool bold,
                     Gdiplus::Color c, Gdiplus::RectF box,
                     Gdiplus::StringAlignment h = Gdiplus::StringAlignmentNear) {
-    Gdiplus::FontFamily fam(L"Segoe UI");
-    Gdiplus::Font font(&fam, px, bold ? Gdiplus::FontStyleBold : Gdiplus::FontStyleRegular,
+    AppFonts& af = Fonts();
+    const Gdiplus::FontFamily* fam = bold ? af.semibold : af.regular;
+    Gdiplus::Font font(fam, px,
+                       (!af.custom && bold) ? Gdiplus::FontStyleBold : Gdiplus::FontStyleRegular,
                        Gdiplus::UnitPixel);
     Gdiplus::StringFormat fmt;
     fmt.SetAlignment(h);

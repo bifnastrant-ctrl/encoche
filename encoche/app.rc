@@ -1,0 +1,3 @@
+// Ressources : la police Inter (SIL Open Font License, voir fonts/OFL-Inter.txt) est intégrée à l'exe.
+101 RCDATA "fonts/Inter-Regular.ttf"
+102 RCDATA "fonts/Inter-SemiBold.ttf"
