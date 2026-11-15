@@ -2,6 +2,7 @@
 #include "config.h"
 #include "http_util.h"
 #include <algorithm>
+#include <iterator>
 #include <cwctype>
 #include <shlwapi.h>
 #include <thread>
@@ -133,7 +134,7 @@ void FetchLyrics(std::shared_ptr<LyricsState> st, int gen, std::wstring title, s
     } catch (...) {}
     std::wstring lrc, body;
     const wchar_t* ua = L"Encoche/1.1";
-    std::wstring q = L"track_name=" + UrlEscape(title) + L"&artist_name=" + UrlEscape(artist);
+    std::wstring q = L"track_name=" + UrlEncode(title) + L"&artist_name=" + UrlEncode(artist);
 
     // 1) correspondance exacte (titre + artiste + durée à +-2 s)
     std::wstring url = L"https://lrclib.net/api/get?" + q;
