@@ -16,6 +16,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Data.Json.h>
 
 class PrayerModule final : public INotchModule {
@@ -264,7 +265,7 @@ private:
         std::array<int, 6> t{};
         int tomorrow = -1;
         std::wstring name;
-        bool ok = HttpGetString(L"https://mawaqit.net/fr/" + UrlEscape(slug), html,
+        bool ok = HttpGetString(L"https://mawaqit.net/fr/" + UrlEncode(slug), html,
                                 L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Encoche/1.1") &&
                   ParseConfData(html, t, tomorrow, name);
         if (d->gen.load() == gen) {
