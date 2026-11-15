@@ -5,6 +5,7 @@
 #include <string>
 #include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Web.Http.h>
 #include <winrt/Windows.Web.Http.Headers.h>
 
@@ -21,6 +22,6 @@ inline bool HttpGetString(const std::wstring& url, std::wstring& out, const wcha
     }
 }
 
-inline std::wstring UrlEscape(const std::wstring& s) {
+inline std::wstring UrlEncode(const std::wstring& s) {
     return winrt::Windows::Foundation::Uri::EscapeComponent(winrt::hstring(s)).c_str();
 }
